@@ -1,10 +1,15 @@
+from abc import ABC
+
 from rest_framework.serializers import Serializer, ModelSerializer
+from rest_framework import serializers
 from stadion.models import Stadion, Position
 from matches.models import Match, Participing
 from team.models import Team
-from profileapp.models import Profile
+from profileapp.models import Profile, Avatar
+from invites.models import UserInvite, TeamInvite, Status
 from django.contrib.auth.models import User
 from .mixins import stadion_change, match_change, participing_change, team_change
+from rest_framework.authtoken.models import Token
 
 
 class PositionSerializer(ModelSerializer):
@@ -117,10 +122,18 @@ class MatchSerializer(ModelSerializer):
         return match_change(instance, validated_data)
 
 
+class AvatarSerializer(ModelSerializer):
+    class Meta:
+        model = Avatar
+        fields = "__all__"
+
+
 class ProfileSerializer(ModelSerializer):
+    avatar = AvatarSerializer()
+
     class Meta:
         model = Profile
-        fields = ("name", "surname", "midname", "photo", "user")
+        exclude = ["user"]
         extra_kwargs = {
             "name": {
                 "required": False,
@@ -134,11 +147,64 @@ class ProfileSerializer(ModelSerializer):
                 "required": False,
                 "allow_blank": True,
             },
-            "photo": {
-                "required": False,
-                "allow_blank": True,
+        }
+
+
+class StatusSerializer(ModelSerializer):
+    class Meta:
+        model = Status
+        fields = ["name", "id"]
+
+
+class TeamInviteSerializer(ModelSerializer):
+    status = StatusSerializer(read_only=True)
+
+    class Meta:
+        model = TeamInvite
+        fields = ["inviting_team", "team_to_invite", "descr", "status", "id"]
+        extra_kwargs = {
+            "status": {
+                "read_only": True
             }
         }
 
+
+class UserInviteSerializer(ModelSerializer):
+    status = StatusSerializer(read_only=True)
+
+    class Meta:
+        model = UserInvite
+        fields = ["user", "descr", "team_invite", "status", "id"]
+
+
+class UserSerializer(ModelSerializer):
+
+    class Meta:
+        model = User
+        fields = ["username", "password", "profile_set"]
+        extra_kwargs = {
+            'password': {'write_only': True},
+            "profile_set": {"read_only": True}
+        }
+
     def create(self, validated_data):
-        return Profile.objects.create(**validated_data)
+        user = User.objects.create_user(**validated_data)
+        return user
+
+    def update(self, instance, validated_data):
+        if 'password' in validated_data:
+            password = validated_data.pop('password')
+            instance.set_password(password)
+        return super(UserSerializer, self).update(instance, validated_data)
+
+
+class TokenSerializer(ModelSerializer):
+    class Meta:
+        model = Token
+        fields = ["key"]
+
+
+class LoginByUsernameAndPasswordSerializer(Serializer):
+    username = serializers.CharField(write_only=True)
+    password = serializers.CharField(write_only=True)
+    token = serializers.StringRelatedField(read_only=True)
